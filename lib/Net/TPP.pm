@@ -7,7 +7,7 @@ use warnings;
 use strict;
 use LWP;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 sub new {
     my ($class,%options) = @_;
@@ -229,7 +229,7 @@ sub _add_output_values {
     }
     if (scalar keys %options) {
         if (! ref $hashref) {
-            my $message = ''.$hashref;
+            my $message = ''.($hashref || '');
             undef $hashref;
             $hashref->{message} = $message;
         }
@@ -380,8 +380,39 @@ sub update_hosts {
 
 sub replace_hosts {
     # The same as update_hosts but we pass in an extra parameter that TPP recognises that replaces all name servers.
+    # We also check if a domain is locked first, and temporary unlock in order to change the hosts/name servers
     my ($self,%options) = @_;
-    return $self->call(mode => 'ORDER', Type => 'Domains', Object => 'Domain', Action => 'UpdateHosts', RemoveHost => 'ALL', %options);
+
+
+    my $domain_locked = 0;
+    # Check if domain is locked and unlock if necessary
+    my $this_domain = $options{Domain} || $options{domain};
+    if ($this_domain) {
+        my $domain_details = $self->get_domain_details(Domain => $this_domain);
+        if ($domain_details && $domain_details->{output} && defined $domain_details->{output}->{LockStatus} && $domain_details->{output}->{LockStatus} == 2) {
+            $domain_locked = 1;
+            $self->unlock_domain(Domain => $this_domain);
+        }
+    }
+
+    # Make NS update
+    my $ns_output = $self->call(mode => 'ORDER', Type => 'Domains', Object => 'Domain', Action => 'UpdateHosts', RemoveHost => 'ALL', %options);
+
+    # Re-lock the domain if necessary
+    if ($domain_locked) {
+        $self->lock_domain(Domain => $this_domain);
+    }
+    return $ns_output;
+}
+
+sub unlock_domain {
+    my ($self,%options) = @_;
+    return $self->call(mode => 'ORDER', Type => 'Domains', Object => 'Domain', Action => 'UpdateDomainLock', DomainLock => 'Unlock', %options);
+}
+
+sub lock_domain {
+    my ($self,%options) = @_;
+    return $self->call(mode => 'ORDER', Type => 'Domains', Object => 'Domain', Action => 'UpdateDomainLock', DomainLock => 'Lock', %options);
 }
 
 sub create_contact {
@@ -433,7 +464,7 @@ Net::TPP - A simple perl interface to the TPP API. http://www.tppwholesale.com.a
   my $order_status = $tpp->get_order_status(OrderID => 1234567, Domain => 'tppwholesale.com.au');
   
   # Check details of a domain you own
-  my $domain_details = $tpp->get_domain_details(domain => 'tppwholesale.com.au');
+  my $domain_details = $tpp->get_domain_details(Domain => 'tppwholesale.com.au');
 
 =head1 DESCRIPTION
 
@@ -644,6 +675,7 @@ Name server changes need to be made before or after the transfer.
 =head2 update_hosts
 
 Add name servers to the list of current name servers for a domain.
+Note that you may want to use replace_hosts instead of this method.
 
   $tpp->update_hosts(
       Domain   => 'tppwholesale.com.au',
@@ -657,6 +689,7 @@ An alias for update_hosts
 =head2 replace_hosts
 
 Similar to update_hosts except that the current name servers will be removed from the domain first.
+If required, it will also unlock a domain temporarily in order to set these name servers.
 
   $tpp->replace_hosts(
       Domain   => 'tppwholesale.com.au',
@@ -668,6 +701,14 @@ Note that this simply calls the UpdateHosts operation with the extra parameter: 
 =head2 replace_name_servers
 
 An alias for replace_hosts
+
+=head2 lock_domain
+
+This will lock the domain within TPP. Note that name servers cannot be updated while domains are locked, however replace_hosts will unlock if necessary.
+
+=head2 unlock_domain
+
+This will unlock the domain within TPP. Note that name servers cannot be updated while domains are locked, however replace_hosts will unlock if necessary.
 
 =head2 create_contact
 
@@ -686,6 +727,13 @@ Create a contact under your TPP account.
       PhoneNumber      => '99999999',
       Email            => 'email@address',
   );
+
+  # Example output:
+  # {
+  #     ..
+  #     'OK' => 1,
+  #     'output' => '1234567' # Order number
+  # };
 
 =head2 update_contact
 
@@ -710,7 +758,7 @@ TPP have confirmed, however, that they lock an IP when 'the system detects any t
 
 =head1 VERSION
 
-0.01
+0.02
 
 =head1 AUTHOR
 

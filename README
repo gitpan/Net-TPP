@@ -2,7 +2,7 @@ Net::TPP is a simple perl interface to the TPP API. http://www.tppwholesale.com.
 
 Net::TPP is a simple module to provide an object-oriented interface to use the TPP API with your TPP account for various domain functions.
 For example - registering, transferring & managing domains, etc.
-Version 0.01
+Version 0.02
 
 INSTALLATION
 
